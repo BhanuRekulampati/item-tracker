@@ -9,6 +9,7 @@ export const users = pgTable("users", {
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
+  emailVerified: boolean("email_verified").default(false),
 });
 
 export const items = pgTable("items", {
@@ -22,6 +23,15 @@ export const items = pgTable("items", {
   lastScan: timestamp("last_scan"),
   createdAt: timestamp("created_at").defaultNow(),
   isActive: boolean("is_active").default(true),
+});
+
+export const emailVerifications = pgTable("email_verifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  email: text("email").notNull(),
+  otp: text("otp").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

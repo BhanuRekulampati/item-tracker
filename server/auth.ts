@@ -6,6 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { sendOTPEmail } from "./email";
 
 declare global {
   namespace Express {
@@ -46,9 +47,12 @@ export function setupAuth(app: Express) {
       const user = await storage.getUserByUsername(username);
       if (!user || !(await comparePasswords(password, user.password))) {
         return done(null, false);
-      } else {
-        return done(null, user);
       }
+      // Check if email is verified
+      if (!user.emailVerified) {
+        return done(new Error("Please verify your email before logging in"), false);
+      }
+      return done(null, user);
     }),
   );
 
@@ -61,34 +65,113 @@ export function setupAuth(app: Express) {
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log('Registration attempt for username:', req.body.username);
-      console.log('Request body:', JSON.stringify(req.body, null, 2));
       
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
-        console.log('User already exists:', req.body.username);
         return res.status(400).json({ message: "Username already exists" });
       }
 
-      console.log('Creating new user...');
+      const existingEmail = await storage.getUserByEmail(req.body.email);
+      if (existingEmail) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      // Create user (email not verified yet)
       const user = await storage.createUser({
         ...req.body,
         password: await hashPassword(req.body.password),
+        emailVerified: false,
       });
-      console.log('User created successfully:', user.id);
 
-      req.login(user, (err) => {
-        if (err) {
-          console.error('Login error after registration:', err);
-          return next(err);
-        }
-        console.log('User logged in successfully');
-        res.status(201).json(user);
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Store OTP
+      await storage.createEmailVerification(user.id, user.email, otp, expiresAt);
+
+      // Send OTP email
+      await sendOTPEmail(user.email, otp, user.fullName);
+
+      // Don't log in yet - user needs to verify email
+      res.status(201).json({ 
+        message: "Registration successful. Please check your email for verification code.",
+        userId: user.id,
+        email: user.email,
       });
     } catch (error) {
-      console.error('Registration error full stack:', error);
+      console.error('Registration error:', error);
       const message = error instanceof Error ? error.message : "Registration failed";
-      console.error('Sending error response:', { message, fullError: String(error) });
       res.status(500).json({ message });
+    }
+  });
+
+  // Send OTP endpoint (for resending)
+  app.post("/api/send-otp", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({ message: "Email already verified" });
+      }
+
+      // Generate new OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      await storage.createEmailVerification(user.id, user.email, otp, expiresAt);
+      await sendOTPEmail(user.email, otp, user.fullName);
+
+      res.json({ message: "Verification code sent to your email" });
+    } catch (error) {
+      console.error('Send OTP error:', error);
+      res.status(500).json({ message: "Failed to send verification code" });
+    }
+  });
+
+  // Verify OTP endpoint
+  app.post("/api/verify-email", async (req, res, next) => {
+    try {
+      const { userId, otp } = req.body;
+      if (!userId || !otp) {
+        return res.status(400).json({ message: "User ID and OTP are required" });
+      }
+
+      const verification = await storage.getEmailVerification(userId, otp);
+      if (!verification) {
+        return res.status(400).json({ message: "Invalid or expired verification code" });
+      }
+
+      // Mark email as verified
+      await storage.updateUser(userId, { emailVerified: true });
+      
+      // Delete the verification record
+      await storage.deleteEmailVerification(userId, otp);
+
+      // Get the updated user
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Log the user in
+      req.login(user, (err) => {
+        if (err) {
+          return next(err);
+        }
+        res.json({ message: "Email verified successfully", user });
+      });
+    } catch (error) {
+      console.error('Verify email error:', error);
+      res.status(500).json({ message: "Failed to verify email" });
     }
   });
 

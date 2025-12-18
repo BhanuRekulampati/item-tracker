@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
 const registerSchema = insertUserSchema.extend({
   confirmPassword: z.string().min(1, "Please confirm your password"),
@@ -32,8 +33,13 @@ const registerSchema = insertUserSchema.extend({
 type RegisterValues = z.infer<typeof registerSchema>;
 
 export default function AuthPage() {
-  const { user, loginMutation, registerMutation } = useAuth();
+  const { user, loginMutation, registerMutation, sendOTPMutation, verifyEmailMutation } = useAuth();
   const [activeTab, setActiveTab] = useState<string>("login");
+  const [verificationState, setVerificationState] = useState<{
+    userId: number;
+    email: string;
+  } | null>(null);
+  const [otp, setOtp] = useState<string>("");
 
   const loginForm = useForm({
     resolver: zodResolver(loginUserSchema),
@@ -69,16 +75,112 @@ export default function AuthPage() {
     // Omit confirmPassword and terms which aren't part of the User model
     const { confirmPassword, terms, ...userValues } = values;
     registerMutation.mutate(userValues, {
-      onSuccess: () => {
-        console.log('Registration successful, redirecting to dashboard...');
-        window.location.href = '/';
+      onSuccess: (data) => {
+        setVerificationState({ userId: data.userId, email: data.email });
+        setOtp("");
       }
     });
+  }
+
+  function onVerifyEmail() {
+    if (!verificationState || otp.length !== 6) return;
+    
+    verifyEmailMutation.mutate(
+      { userId: verificationState.userId, otp },
+      {
+        onSuccess: () => {
+          window.location.href = '/';
+        }
+      }
+    );
+  }
+
+  function onResendOTP() {
+    if (!verificationState) return;
+    sendOTPMutation.mutate({ email: verificationState.email });
   }
   
   // Redirect if user is already logged in
   if (user) {
     return <Redirect to="/" />;
+  }
+
+  // Show email verification step if needed
+  if (verificationState) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6 space-y-6">
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <i className="ri-mail-check-line text-primary text-5xl"></i>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Verify Your Email</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                We've sent a 6-digit verification code to <strong>{verificationState.email}</strong>
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                  Enter verification code
+                </label>
+                <div className="flex justify-center">
+                  <InputOTP
+                    maxLength={6}
+                    value={otp}
+                    onChange={(value) => setOtp(value)}
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                      <InputOTPSlot index={3} />
+                      <InputOTPSlot index={4} />
+                      <InputOTPSlot index={5} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+              </div>
+
+              <Button
+                onClick={onVerifyEmail}
+                disabled={otp.length !== 6 || verifyEmailMutation.isPending}
+                className="w-full"
+              >
+                {verifyEmailMutation.isPending ? "Verifying..." : "Verify Email"}
+              </Button>
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={onResendOTP}
+                  disabled={sendOTPMutation.isPending}
+                  className="text-sm text-primary hover:text-primary/80 disabled:opacity-50"
+                >
+                  {sendOTPMutation.isPending ? "Sending..." : "Resend code"}
+                </button>
+              </div>
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerificationState(null);
+                    setOtp("");
+                    registerForm.reset();
+                  }}
+                  className="text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Back to registration
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

@@ -1,6 +1,7 @@
 import {
   users,
   items,
+  emailVerifications,
   type User,
   type InsertUser,
   type Item,
@@ -10,12 +11,18 @@ import { nanoid } from "nanoid";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { db, pool } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
+  
+  createEmailVerification(userId: number, email: string, otp: string, expiresAt: Date): Promise<void>;
+  getEmailVerification(userId: number, otp: string): Promise<{ email: string; expiresAt: Date } | undefined>;
+  deleteEmailVerification(userId: number, otp: string): Promise<void>;
   
   createItem(userId: number, item: InsertItem): Promise<Item>;
   getItemById(id: number): Promise<Item | undefined>;
@@ -53,13 +60,62 @@ class InMemoryStorage implements IStorage {
     return this.users.find((u) => u.username === username);
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return this.users.find((u) => u.email === email);
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const user: User = {
       id: this.userIdSeq++,
+      emailVerified: false,
       ...insertUser,
     };
     this.users.push(user);
     return user;
+  }
+
+  async updateUser(id: number, updates: Partial<User>): Promise<User | undefined> {
+    const user = await this.getUser(id);
+    if (!user) return undefined;
+    Object.assign(user, updates);
+    return user;
+  }
+
+  private emailVerifications: Array<{
+    id: number;
+    userId: number;
+    email: string;
+    otp: string;
+    expiresAt: Date;
+    createdAt: Date;
+  }> = [];
+  private emailVerificationIdSeq = 1;
+
+  async createEmailVerification(userId: number, email: string, otp: string, expiresAt: Date): Promise<void> {
+    // Delete any existing verifications for this user
+    this.emailVerifications = this.emailVerifications.filter((ev) => ev.userId !== userId);
+    
+    this.emailVerifications.push({
+      id: this.emailVerificationIdSeq++,
+      userId,
+      email,
+      otp,
+      expiresAt,
+      createdAt: new Date(),
+    });
+  }
+
+  async getEmailVerification(userId: number, otp: string): Promise<{ email: string; expiresAt: Date } | undefined> {
+    const verification = this.emailVerifications.find(
+      (ev) => ev.userId === userId && ev.otp === otp && ev.expiresAt > new Date()
+    );
+    return verification ? { email: verification.email, expiresAt: verification.expiresAt } : undefined;
+  }
+
+  async deleteEmailVerification(userId: number, otp: string): Promise<void> {
+    this.emailVerifications = this.emailVerifications.filter(
+      (ev) => !(ev.userId === userId && ev.otp === otp)
+    );
   }
 
   async createItem(userId: number, insertItem: InsertItem): Promise<Item> {
@@ -71,7 +127,9 @@ class InMemoryStorage implements IStorage {
       lastScan: null,
       createdAt: new Date(),
       isActive: true,
-      ...insertItem,
+      name: insertItem.name,
+      description: insertItem.description ?? null,
+      icon: insertItem.icon ?? null,
     };
     this.items.push(item);
     return item;
@@ -136,9 +194,60 @@ class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email));
     return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values({
+      ...insertUser,
+      emailVerified: false,
+    }).returning();
+    return user;
+  }
+
+  async updateUser(id: number, updates: Partial<User>): Promise<User | undefined> {
+    const [updatedUser] = await db
+      .update(users)
+      .set(updates)
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser;
+  }
+
+  async createEmailVerification(userId: number, email: string, otp: string, expiresAt: Date): Promise<void> {
+    // Delete any existing verifications for this user
+    await db.delete(emailVerifications).where(eq(emailVerifications.userId, userId));
+    
+    await db.insert(emailVerifications).values({
+      userId,
+      email,
+      otp,
+      expiresAt,
+    });
+  }
+
+  async getEmailVerification(userId: number, otp: string): Promise<{ email: string; expiresAt: Date } | undefined> {
+    const [verification] = await db
+      .select()
+      .from(emailVerifications)
+      .where(and(eq(emailVerifications.userId, userId), eq(emailVerifications.otp, otp)));
+    
+    if (!verification || verification.expiresAt < new Date()) {
+      return undefined;
+    }
+    
+    return { email: verification.email, expiresAt: verification.expiresAt };
+  }
+
+  async deleteEmailVerification(userId: number, otp: string): Promise<void> {
+    await db
+      .delete(emailVerifications)
+      .where(and(eq(emailVerifications.userId, userId), eq(emailVerifications.otp, otp)));
   }
 
   async createItem(userId: number, insertItem: InsertItem): Promise<Item> {

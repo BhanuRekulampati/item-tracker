@@ -8,13 +8,21 @@ import { insertUserSchema, User as SelectUser, InsertUser, LoginUser } from "@sh
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+type RegisterResponse = {
+  message: string;
+  userId: number;
+  email: string;
+};
+
 type AuthContextType = {
   user: SelectUser | null;
   isLoading: boolean;
   error: Error | null;
   loginMutation: UseMutationResult<SelectUser, Error, LoginUser>;
   logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
+  registerMutation: UseMutationResult<RegisterResponse, Error, InsertUser>;
+  sendOTPMutation: UseMutationResult<{ message: string }, Error, { email: string }>;
+  verifyEmailMutation: UseMutationResult<{ message: string; user: SelectUser }, Error, { userId: number; otp: string }>;
 };
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -55,16 +63,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("POST", "/api/register", credentials);
       return await res.json();
     },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: (data: RegisterResponse) => {
       toast({
-        title: "Account created!",
-        description: "Your account has been successfully created.",
+        title: "Registration successful!",
+        description: "Please check your email for the verification code.",
       });
     },
     onError: (error: Error) => {
       toast({
         title: "Registration failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const sendOTPMutation = useMutation({
+    mutationFn: async (data: { email: string }) => {
+      const res = await apiRequest("POST", "/api/send-otp", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Code sent!",
+        description: "Verification code has been sent to your email.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to send code",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const verifyEmailMutation = useMutation({
+    mutationFn: async (data: { userId: number; otp: string }) => {
+      const res = await apiRequest("POST", "/api/verify-email", data);
+      return await res.json();
+    },
+    onSuccess: (data: { message: string; user: SelectUser }) => {
+      queryClient.setQueryData(["/api/user"], data.user);
+      toast({
+        title: "Email verified!",
+        description: "Your email has been verified successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Verification failed",
         description: error.message,
         variant: "destructive",
       });
@@ -100,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginMutation,
         logoutMutation,
         registerMutation,
+        sendOTPMutation,
+        verifyEmailMutation,
       }}
     >
       {children}
