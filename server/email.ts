@@ -23,21 +23,26 @@ export async function sendOTPEmail(email: string, otp: string, fullName: string)
     const smtpPort = parseInt((process.env.SMTP_PORT || "587").trim());
     
     console.log("Connecting to SMTP:", smtpHost, "on port", smtpPort);
+    console.log("SMTP User:", smtpUser);
     
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: false, // true for 465, false for other ports
+      requireTLS: true, // Require TLS
       auth: {
         user: smtpUser,
         pass: smtpPassword,
       },
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 10000, // 10 seconds
-      socketTimeout: 10000, // 10 seconds
+      connectionTimeout: 20000, // 20 seconds
+      greetingTimeout: 20000, // 20 seconds
+      socketTimeout: 20000, // 20 seconds
       tls: {
-        rejectUnauthorized: false, // Allow self-signed certificates
+        rejectUnauthorized: true, // Verify certificate
+        ciphers: 'SSLv3',
       },
+      debug: true, // Enable debug logging
+      logger: true, // Enable logger
     });
 
     const mailOptions = {
