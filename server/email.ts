@@ -3,9 +3,9 @@ import nodemailer from "nodemailer";
 // Email service using Brevo SMTP (or fallback to console logging in dev)
 
 export async function sendOTPEmail(email: string, otp: string, fullName: string): Promise<boolean> {
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPassword = process.env.SMTP_PASSWORD;
-  const fromEmail = process.env.EMAIL_FROM || smtpUser;
+  const smtpUser = process.env.SMTP_USER?.trim();
+  const smtpPassword = process.env.SMTP_PASSWORD?.trim();
+  const fromEmail = (process.env.EMAIL_FROM || smtpUser)?.trim();
   const appName = "QR-Track";
 
   // If no SMTP credentials, just log the OTP (for development)
@@ -18,10 +18,15 @@ export async function sendOTPEmail(email: string, otp: string, fullName: string)
   }
 
   try {
-    // Brevo SMTP settings
+    // Brevo SMTP settings - trim all values to remove whitespace/newlines
+    const smtpHost = (process.env.SMTP_HOST || "smtp-relay.brevo.com").trim();
+    const smtpPort = parseInt((process.env.SMTP_PORT || "587").trim());
+    
+    console.log("Connecting to SMTP:", smtpHost, "on port", smtpPort);
+    
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
+      host: smtpHost,
+      port: smtpPort,
       secure: false, // true for 465, false for other ports
       auth: {
         user: smtpUser,
