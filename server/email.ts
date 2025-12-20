@@ -22,10 +22,16 @@ export async function sendOTPEmail(email: string, otp: string, fullName: string)
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
       port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: false,
+      secure: false, // true for 465, false for other ports
       auth: {
         user: smtpUser,
         pass: smtpPassword,
+      },
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000, // 10 seconds
+      socketTimeout: 10000, // 10 seconds
+      tls: {
+        rejectUnauthorized: false, // Allow self-signed certificates
       },
     });
 
