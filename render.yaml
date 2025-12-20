@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: qr-tracker-app
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: 587
+      - key: EMAIL_FROM
+        sync: false
+
+databases:
+  - name: qr-tracker-db
+    plan: starter
+    databaseName: qrtracker
+    user: qrtracker
+
