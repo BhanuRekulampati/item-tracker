@@ -8,6 +8,7 @@ import ManageItemsPage from "@/pages/manage-items-page";
 import ProfileSettingsPage from "@/pages/profile-settings-page";
 import ScannerPage from "@/pages/scanner-page";
 import ItemFoundPage from "@/pages/item-found-page";
+import SupportPage from "@/pages/support-page";
 
 function Router() {
   return (
@@ -16,6 +17,7 @@ function Router() {
       <ProtectedRoute path="/create" component={CreateQrCodePage} />
       <ProtectedRoute path="/items" component={ManageItemsPage} />
       <ProtectedRoute path="/profile" component={ProfileSettingsPage} />
+      <ProtectedRoute path="/support" component={SupportPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/scan" component={ScannerPage} />
       <Route path="/found/:qrCodeId" component={ItemFoundPage} />

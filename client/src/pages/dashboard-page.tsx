@@ -107,7 +107,7 @@ export default function DashboardPage() {
                 iconColor="gray"
                 title="Get Support"
                 description="Contact our support team"
-                link="#"
+                link="/support"
               />
             </div>
           </div>
